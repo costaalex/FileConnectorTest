@@ -31,17 +31,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * FileStreamSourceTask reads from stdin or a file.
  */
 public class FileStreamSourceTask extends SourceTask {
     private static final Logger log = LoggerFactory.getLogger(FileStreamSourceTask.class);
-    public static final String FILENAME_FIELD = "filename";
+    public static final String FILENAME_FIELD = "C:\\file-connector-test\\lib\\file";
     public  static final String POSITION_FIELD = "position";
     private static final Schema VALUE_SCHEMA = Schema.STRING_SCHEMA;
 
@@ -86,135 +83,27 @@ public class FileStreamSourceTask extends SourceTask {
 
     @Override
     public List<SourceRecord> poll() throws InterruptedException {
-        if (stream == null) {
-            try {
-                stream = Files.newInputStream(Paths.get(filename));
-                Map<String, Object> offset = context.offsetStorageReader().offset(Collections.singletonMap(FILENAME_FIELD, filename));
-                if (offset != null) {
-                    Object lastRecordedOffset = offset.get(POSITION_FIELD);
-                    if (lastRecordedOffset != null && !(lastRecordedOffset instanceof Long))
-                        throw new ConnectException("Offset position is the incorrect type");
-                    if (lastRecordedOffset != null) {
-                        log.debug("Found previous offset, trying to skip to file offset {}", lastRecordedOffset);
-                        long skipLeft = (Long) lastRecordedOffset;
-                        while (skipLeft > 0) {
-                            try {
-                                long skipped = stream.skip(skipLeft);
-                                skipLeft -= skipped;
-                            } catch (IOException e) {
-                                log.error("Error while trying to seek to previous offset in file {}: ", filename, e);
-                                throw new ConnectException(e);
-                            }
-                        }
-                        log.debug("Skipped to offset {}", lastRecordedOffset);
-                    }
-                    streamOffset = (lastRecordedOffset != null) ? (Long) lastRecordedOffset : 0L;
-                } else {
-                    streamOffset = 0L;
-                }
-                reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
-                log.debug("Opened {} for reading", logFilename());
-            } catch (NoSuchFileException e) {
-                log.warn("Couldn't find file {} for FileStreamSourceTask, sleeping to wait for it to be created", logFilename());
-                synchronized (this) {
-                    this.wait(1000);
-                }
-                return null;
-            } catch (IOException e) {
-                log.error("Error while trying to open file {}: ", filename, e);
-                throw new ConnectException(e);
+        ArrayList<SourceRecord> records = null;
+
+        int i=0;
+        if (records == null)
+            records = new ArrayList<>();
+
+        do{
+            records.add(new SourceRecord(offsetKey(filename), offsetValue(streamOffset), topic, null,
+                    null, null, VALUE_SCHEMA, "gio-"+UUID.randomUUID(), System.currentTimeMillis()));
+
+            if (records.size() >= batchSize) {
+                return records;
             }
-        }
+            Thread.sleep(500);
+            i++;
+        } while (i<500);
 
-        // Unfortunately we can't just use readLine() because it blocks in an uninterruptible way.
-        // Instead we have to manage splitting lines ourselves, using simple backoff when no new data
-        // is available.
-        try {
-            final BufferedReader readerCopy;
-            synchronized (this) {
-                readerCopy = reader;
-            }
-            if (readerCopy == null)
-                return null;
-
-            ArrayList<SourceRecord> records = null;
-
-            int nread = 0;
-            while (readerCopy.ready()) {
-                nread = readerCopy.read(buffer, offset, buffer.length - offset);
-                log.trace("Read {} bytes from {}", nread, logFilename());
-
-                if (nread > 0) {
-                    offset += nread;
-                    String line;
-                    boolean foundOneLine = false;
-                    do {
-                        line = extractLine();
-                        if (line != null) {
-                            foundOneLine = true;
-                            log.trace("Read a line from {}", logFilename());
-                            if (records == null)
-                                records = new ArrayList<>();
-                            records.add(new SourceRecord(offsetKey(filename), offsetValue(streamOffset), topic, null,
-                                    null, null, VALUE_SCHEMA, line, System.currentTimeMillis()));
-
-                            if (records.size() >= batchSize) {
-                                return records;
-                            }
-                        }
-                    } while (line != null);
-
-                    if (!foundOneLine && offset == buffer.length) {
-                        char[] newbuf = new char[buffer.length * 2];
-                        System.arraycopy(buffer, 0, newbuf, 0, buffer.length);
-                        log.info("Increased buffer from {} to {}", buffer.length, newbuf.length);
-                        buffer = newbuf;
-                    }
-                }
-            }
-
-            if (nread <= 0)
-                synchronized (this) {
-                    this.wait(1000);
-                }
-
-            return records;
-        } catch (IOException e) {
-            // Underlying stream was killed, probably as a result of calling stop. Allow to return
-            // null, and driving thread will handle any shutdown if necessary.
-        }
-        return null;
+        return records;
     }
 
-    private String extractLine() {
-        int until = -1, newStart = -1;
-        for (int i = 0; i < offset; i++) {
-            if (buffer[i] == '\n') {
-                until = i;
-                newStart = i + 1;
-                break;
-            } else if (buffer[i] == '\r') {
-                // We need to check for \r\n, so we must skip this if we can't check the next char
-                if (i + 1 >= offset)
-                    return null;
 
-                until = i;
-                newStart = (buffer[i + 1] == '\n') ? i + 2 : i + 1;
-                break;
-            }
-        }
-
-        if (until != -1) {
-            String result = new String(buffer, 0, until);
-            System.arraycopy(buffer, newStart, buffer, 0, buffer.length - newStart);
-            offset = offset - newStart;
-            if (streamOffset != null)
-                streamOffset += newStart;
-            return result;
-        } else {
-            return null;
-        }
-    }
 
     @Override
     public void stop() {
