@@ -98,7 +98,7 @@ public class FileStreamSourceTask extends SourceTask {
             }
             Thread.sleep(500);
             i++;
-        } while (i<500);
+        } while (i<10);
 
         return records;
     }
