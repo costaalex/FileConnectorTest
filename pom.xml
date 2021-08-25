@@ -23,6 +23,7 @@
         <connect.api.version>2.5.0</connect.api.version>
         <junit.jupiter.version>5.6.2</junit.jupiter.version>
         <testcontainers.version>1.14.1</testcontainers.version>
+        <paho.version>1.2.1</paho.version>
     </properties>
 
     <dependencies>
@@ -31,6 +32,11 @@
             <artifactId>connect-api</artifactId>
             <version>${connect.api.version}</version>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.paho</groupId>
+            <artifactId>org.eclipse.paho.client.mqttv3</artifactId>
+            <version>${paho.version}</version>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -88,7 +94,8 @@
                             <goal>kafka-connect</goal>
                         </goals>
                         <configuration>
-                            <ownerUsername>you</ownerUsername>
+                            <ownerUsername>Masa</ownerUsername>
+                            <description>Mqtt source connector</description>
                             <componentTypes>
                                 <componentType>source</componentType>
                             </componentTypes>
